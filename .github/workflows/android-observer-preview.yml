@@ -1,0 +1,63 @@
+name: YOUPI PG Android observer installable preview
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/android-observer-preview.yml
+      - apps/android-observer-app/**
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: youpi-android-observer-preview
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.2'
+      - name: Build installable Android debug APK
+        run: gradle --project-dir apps/android-observer-app :app:assembleDebug --no-daemon
+      - name: Prepare APK and checksum
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK='apps/android-observer-app/app/build/outputs/apk/debug/app-debug.apk'
+          test -s "$APK"
+          mkdir -p release-assets
+          cp "$APK" release-assets/YouPI-PG-Android-Observer-v1.0.0-debug.apk
+          cd release-assets
+          sha256sum ./*.apk > SHA256SUMS.txt
+          echo "tag=preview-v1.0.0-build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+      - name: Publish installable experimental preview
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: YOUPI PG Android Observer v1.0.0 — Experimental preview
+          prerelease: true
+          make_latest: false
+          generate_release_notes: true
+          body: |
+            Installable Android debug APK built from `apps/android-observer-app`.
+
+            **Important:** YOUPI PG is explicitly an experimental research project, not a certified, bank-approved, NPCI-approved, audited, or production-ready payment gateway. Do not rely on it for business-critical or high-value payments. Verify every payment independently against official bank records.
+
+            This app requests sensitive SMS and notification access to observe payment alerts. Grant those permissions only on a dedicated test device/account after reviewing the source. This preview is debug-signed and is not a Play Store release.
+          files: |
+            release-assets/*.apk
+            release-assets/SHA256SUMS.txt
+          fail_on_unmatched_files: true
