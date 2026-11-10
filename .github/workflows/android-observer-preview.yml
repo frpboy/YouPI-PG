@@ -6,6 +6,11 @@ on:
     paths:
       - .github/workflows/android-observer-preview.yml
       - apps/android-observer-app/**
+      - scripts/build-android-apk.js
+      - scripts/sync-android-allowlist.js
+      - packages/common/**
+      - package.json
+      - package-lock.json
   workflow_dispatch:
 
 permissions:
@@ -25,20 +30,29 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/setup-node@v4
         with:
-          gradle-version: '8.2'
-      - name: Build installable Android debug APK
-        run: gradle --project-dir apps/android-observer-app :app:assembleDebug --no-daemon
-      - name: Prepare APK and checksum
+          node-version: '24'
+          cache: npm
+      - name: Install repository dependencies
+        run: npm ci
+      - name: Build APK with repository signing and packaging script
+        run: npm run build:android:apk
+      - name: Verify APK checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd apps/android-observer-app
+          sha256sum -c youpi-sms-gateway.apk.sha256
+      - name: Prepare release assets
         id: meta
         shell: bash
         run: |
           set -euo pipefail
-          APK='apps/android-observer-app/app/build/outputs/apk/debug/app-debug.apk'
+          APK='apps/android-observer-app/youpi-sms-gateway.apk'
           test -s "$APK"
           mkdir -p release-assets
-          cp "$APK" release-assets/YouPI-PG-Android-Observer-v1.0.0-debug.apk
+          cp "$APK" release-assets/YouPI-PG-Android-Observer-v1.0.0.apk
           cd release-assets
           sha256sum ./*.apk > SHA256SUMS.txt
           echo "tag=preview-v1.0.0-build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
@@ -52,11 +66,11 @@ jobs:
           make_latest: false
           generate_release_notes: true
           body: |
-            Installable Android debug APK built from `apps/android-observer-app`.
+            Installable Android APK built from the repository's verified `npm run build:android:apk` script. That script generates a throwaway signing certificate for each build; installing a later build over an earlier one may require uninstalling the old APK first.
 
             **Important:** YOUPI PG is explicitly an experimental research project, not a certified, bank-approved, NPCI-approved, audited, or production-ready payment gateway. Do not rely on it for business-critical or high-value payments. Verify every payment independently against official bank records.
 
-            This app requests sensitive SMS and notification access to observe payment alerts. Grant those permissions only on a dedicated test device/account after reviewing the source. This preview is debug-signed and is not a Play Store release.
+            This app requests sensitive SMS and notification access to observe payment alerts. Grant those permissions only on a dedicated test device/account after reviewing the source. Do not use real bank/customer data for experiments. This is not a Play Store release.
           files: |
             release-assets/*.apk
             release-assets/SHA256SUMS.txt
